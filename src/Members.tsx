@@ -1,0 +1,19 @@
+import { useEffect, useState } from 'react';
+import { UsersRound, Coins, Save, SlidersHorizontal } from 'lucide-react';
+import { api, post, put, date } from './api';
+import type { User, Operation } from './types';
+import { Modal } from './components';
+
+export default function Members({operations, notify, refresh}: {operations: Operation[]; notify: (value: string) => void; refresh: () => Promise<void>}) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [tab, setTab] = useState('users');
+  const [grant, setGrant] = useState<User | null>(null);
+  const [amount, setAmount] = useState(100);
+  const [note, setNote] = useState('管理员发放测试积分');
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState(false);
+  const load = () => api<User[]>('/admin/users').then(setUsers).catch(e => notify(e.message));
+  useEffect(() => { void load(); }, []);
+  useEffect(() => { setPrices(Object.fromEntries(operations.map(op => [op.id, op.price]))); }, [operations]);
+  return <><div className="page-heading"><div><span className="eyebrow">PLATFORM MANAGEMENT</span><h1>成员与功能价格</h1><p>管理成员积分，并设置各项创作功能的单任务价格。</p></div><span className="admin-badge"><UsersRound size={16} />管理员</span></div><div className="simple-tabs"><button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>成员管理<span>{users.length}</span></button><button className={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>功能价格</button></div>{tab === 'users' ? <section className="panel"><div className="table-scroll"><table><thead><tr><th>成员</th><th>角色</th><th>可用积分</th><th>冻结积分</th><th>注册时间</th><th>操作</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><div className="member-name"><div className="avatar">{user.name.slice(0, 1)}</div><div><strong>{user.name}</strong><small>{user.email}</small></div></div></td><td>{user.role === 'admin' ? '管理员' : '创作者'}</td><td>{user.balance - user.reserved}</td><td>{user.reserved}</td><td>{date(user.created_at)}</td><td><button className="secondary small" onClick={() => {setGrant(user); setAmount(100);}}><Coins size={15} />发放积分</button></td></tr>)}</tbody></table></div></section> : <section className="panel price-panel"><div className="section-heading"><h2><SlidersHorizontal size={18} />按功能设置价格</h2><button className="primary" disabled={busy} onClick={async () => {setBusy(true); try {await put('/admin/prices', {prices}); await refresh(); notify('功能价格已保存，新任务使用新的价格');} catch(e) {notify((e as Error).message);} finally {setBusy(false);}}}><Save size={16} />保存价格</button></div><p className="muted">单位为积分 / 单任务。套图与批量任务按任务数量累计，已有任务保留创建时的价格。</p><div className="price-grid">{operations.map(op => <label key={op.id}><span>{op.name}<small>{({image: '图片', model: '模特', video: '视频'} as Record<string, string>)[op.group]}</small></span><div><input type="number" min={0} max={100000} disabled={op.id === 'local_design'} value={prices[op.id] ?? op.price} onChange={e => setPrices(prev => ({...prev, [op.id]: Math.max(0, Math.floor(Number(e.target.value)))}))} /><small>积分</small></div></label>)}</div></section>}{grant && <Modal title={'向 ' + grant.name + ' 发放积分'} close={() => setGrant(null)}><div className="modal-body"><label>积分数量<input type="number" min={1} max={100000} value={amount} onChange={e => setAmount(Number(e.target.value))} /></label><label>备注<input value={note} onChange={e => setNote(e.target.value)} maxLength={120} /></label></div><div className="modal-actions"><button className="secondary" onClick={() => setGrant(null)}>取消</button><button className="primary" disabled={busy || amount < 1 || !Number.isInteger(amount)} onClick={async () => {setBusy(true); try {await post('/admin/credits', {user_id: grant.id, amount, note}); await load(); await refresh(); setGrant(null); notify('积分已发放并记入流水');} catch(e) {notify((e as Error).message);} finally {setBusy(false);}}}>确认发放</button></div></Modal>}</>;
+}
